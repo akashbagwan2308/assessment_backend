@@ -1,0 +1,55 @@
+const express = require('express');
+const cors = require('cors');
+const fs = require('fs');
+const { exec } = require('child_process');
+const path = require('path');
+
+const app = express();
+app.use(cors()); // Allows your GitHub Pages site to talk to this server
+app.use(express.json());
+
+app.post('/run', (req, res) => {
+    const code = req.body.code;
+    
+    if (!code) {
+        return res.status(400).json({ error: "No Verilog code provided." });
+    }
+
+    // Create a unique temporary directory for this student's execution
+    const runId = Date.now().toString() + Math.floor(Math.random() * 1000);
+    const runDir = path.join('/tmp', runId);
+    fs.mkdirSync(runDir, { recursive: true });
+
+    const filePath = path.join(runDir, 'design.v');
+    const outPath = path.join(runDir, 'sim.vvp');
+
+    // 1. Save the student's code to a file
+    fs.writeFileSync(filePath, code);
+
+    // 2. Compile the code using Icarus Verilog
+    exec(`iverilog -o ${outPath} ${filePath}`, { timeout: 5000 }, (compileErr, compileStdout, compileStderr) => {
+        if (compileErr) {
+            // If there's a syntax error, send it back!
+            fs.rmSync(runDir, { recursive: true, force: true });
+            return res.json({ status: "error", output: compileStderr || compileErr.message });
+        }
+
+        // 3. Run the simulation using VVP
+        exec(`vvp ${outPath}`, { timeout: 5000 }, (runErr, runStdout, runStderr) => {
+            // Clean up the temporary files so we don't run out of space
+            fs.rmSync(runDir, { recursive: true, force: true });
+
+            if (runErr) {
+                return res.json({ status: "error", output: runStderr || runErr.message });
+            }
+
+            // Send the terminal output back to the student's screen!
+            return res.json({ status: "success", output: runStdout });
+        });
+    });
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Verilog Compilation Server running on port ${PORT}`);
+});
