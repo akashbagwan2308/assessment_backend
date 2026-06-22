@@ -20,14 +20,15 @@ app.post('/run', (req, res) => {
     const runDir = path.join('/tmp', runId);
     fs.mkdirSync(runDir, { recursive: true });
 
-    const filePath = path.join(runDir, 'design.v');
+    // IMPORTANT: Save as .sv so the compiler natively treats it as SystemVerilog
+    const filePath = path.join(runDir, 'design.sv');
     const outPath = path.join(runDir, 'sim.vvp');
 
     // 1. Save the student's code to a file
     fs.writeFileSync(filePath, code);
 
-    // 2. Compile the code using Icarus Verilog
-    exec(`iverilog -o ${outPath} ${filePath}`, { timeout: 5000 }, (compileErr, compileStdout, compileStderr) => {
+    // 2. Compile the code using Icarus Verilog with SystemVerilog support (-g2012)
+    exec(`iverilog -g2012 -o ${outPath} ${filePath}`, { timeout: 10000 }, (compileErr, compileStdout, compileStderr) => {
         if (compileErr) {
             // If there's a syntax error, send it back!
             fs.rmSync(runDir, { recursive: true, force: true });
@@ -35,7 +36,7 @@ app.post('/run', (req, res) => {
         }
 
         // 3. Run the simulation using VVP
-        exec(`vvp ${outPath}`, { timeout: 5000 }, (runErr, runStdout, runStderr) => {
+        exec(`vvp ${outPath}`, { timeout: 10000 }, (runErr, runStdout, runStderr) => {
             // Clean up the temporary files so we don't run out of space
             fs.rmSync(runDir, { recursive: true, force: true });
 
@@ -51,5 +52,5 @@ app.post('/run', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Verilog Compilation Server running on port ${PORT}`);
+    console.log(`SystemVerilog Compilation Server running on port ${PORT}`);
 });

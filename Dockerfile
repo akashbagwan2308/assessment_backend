@@ -1,8 +1,19 @@
 # Use a lightweight Linux image with Node.js installed
 FROM node:18-alpine
 
-# Install Icarus Verilog compiler
-RUN apk update && apk add --no-cache iverilog
+# Install build dependencies required to compile Icarus Verilog from source
+RUN apk update && apk add --no-cache \
+    git build-base autoconf bison flex gperf readline-dev
+
+# Clone the v12 branch of Icarus Verilog and build it from source
+# This version has vastly superior SystemVerilog (IEEE 1800-2012) support
+RUN git clone --branch v12-branch https://github.com/steveicarus/iverilog.git /tmp/iverilog && \
+    cd /tmp/iverilog && \
+    sh autoconf.sh && \
+    ./configure && \
+    make -j$(nproc) && \
+    make install && \
+    rm -rf /tmp/iverilog
 
 # Create app directory
 WORKDIR /usr/src/app
