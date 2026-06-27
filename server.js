@@ -1,17 +1,22 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const { exec } = require('child_process');
 const path = require('path');
-const jwt = require('jsonwebtoken'); // Added JWT
+const jwt = require('jsonwebtoken'); 
 
 const app = express();
-app.use(cors()); // Allows your GitHub Pages site to talk to this server
-app.use(express.json());
 
-// 🔴 SECRET KEY: Store this in Render Environment Variables!
+// Security and Middleware
+app.use(cors()); 
+app.use(express.json({ limit: '20mb' })); // Increased limit for Base64 PDF uploads
+app.use(express.urlencoded({ limit: '20mb', extended: true }));
+
+// 🔴 SECRET KEYS & URLS: Store these in Render Environment Variables!
 const JWT_SECRET = process.env.JWT_SECRET || "logicsilicon_secure_jwt_key_2024";
-const GOOGLE_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzhtk4rISUDJvMb3nLzJq2CBY5cVnm9kAnL_fuW77MLOkoR0-_dS0nKtmCwBjpD3mpAnQ/exec";
+const GOOGLE_SCRIPT_URL_LMS = process.env.GOOGLE_SCRIPT_URL_LMS || "https://script.google.com/macros/s/AKfycbzH1O7uFf7KLOTwNoAWyUReCYhiD1dftrUQ-BMok70w2Ry25wD17-oiw0LzyYFTIK4ePQ/exec";
+const GOOGLE_SCRIPT_URL_ASSESSMENT = process.env.GOOGLE_SCRIPT_URL_ASSESSMENT || "https://script.google.com/macros/s/AKfycbzhtk4rISUDJvMb3nLzJq2CBY5cVnm9kAnL_fuW77MLOkoR0-_dS0nKtmCwBjpD3mpAnQ/exec";
 
 // ==========================================
 // 1. SECURE AUTHENTICATION ENDPOINT
@@ -20,8 +25,8 @@ app.post('/login', async (req, res) => {
     const { email, authString, role } = req.body;
 
     try {
-        // Securely verify credentials with Google Apps Script from the backend
-        const googleResponse = await fetch(GOOGLE_WEB_APP_URL, {
+        // Securely verify credentials with the LMS Google Apps Script
+        const googleResponse = await fetch(GOOGLE_SCRIPT_URL_LMS, {
             method: 'POST', 
             headers: {'Content-Type': 'text/plain'}, 
             body: JSON.stringify({ action: 'login', role: role, email: email, authString: authString })
@@ -37,7 +42,7 @@ app.post('/login', async (req, res) => {
                 { expiresIn: '24h' }
             );
 
-            res.json({ status: 'success', token: token, user: { email, role } });
+            res.json({ status: 'success', token: token, user: { email, role }, batch: data.batch });
         } else {
             res.status(401).json({ status: 'error', message: data.message || 'Invalid credentials.' });
         }
@@ -48,25 +53,57 @@ app.post('/login', async (req, res) => {
 });
 
 // ==========================================
-// 2. SECURITY MIDDLEWARE
+// 2. SECURITY MIDDLEWARE (JWT Verification)
 // ==========================================
 function authenticateToken(req, res, next) {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1]; // Extract token from "Bearer <token>"
 
-    if (!token) return res.status(401).json({ status: "error", output: "Access Denied: No JWT Token Provided. Please log in again." });
+    if (!token) return res.status(401).json({ status: "error", message: "Access Denied: No JWT Token Provided. Please log in again." });
 
     jwt.verify(token, JWT_SECRET, (err, user) => {
-        if (err) return res.status(403).json({ status: "error", output: "Access Denied: Invalid or Expired Session Token." });
+        if (err) return res.status(403).json({ status: "error", message: "Access Denied: Invalid or Expired Session Token." });
         req.user = user;
         next();
     });
 }
 
 // ==========================================
-// 3. SECURED COMPILATION ENDPOINT
+// 3. GOOGLE SHEETS SECURE PROXIES
 // ==========================================
-// Added 'authenticateToken' to protect execution
+app.post('/api/lms', authenticateToken, async (req, res) => {
+    try {
+        const response = await fetch(GOOGLE_SCRIPT_URL_LMS, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body: JSON.stringify(req.body)
+        });
+        const data = await response.json();
+        res.json(data);
+    } catch (error) {
+        console.error("LMS Proxy Error:", error);
+        res.status(502).json({ status: "error", message: "Failed to communicate with LMS Database." });
+    }
+});
+
+app.post('/api/assessment', authenticateToken, async (req, res) => {
+    try {
+        const response = await fetch(GOOGLE_SCRIPT_URL_ASSESSMENT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body: JSON.stringify(req.body)
+        });
+        const data = await response.json();
+        res.json(data);
+    } catch (error) {
+        console.error("Assessment Proxy Error:", error);
+        res.status(502).json({ status: "error", message: "Failed to communicate with Assessment Database." });
+    }
+});
+
+// ==========================================
+// 4. SECURED COMPILATION ENDPOINT
+// ==========================================
 app.post('/run', authenticateToken, (req, res) => {
     const code = req.body.code;
     
@@ -74,36 +111,28 @@ app.post('/run', authenticateToken, (req, res) => {
         return res.status(400).json({ error: "No Verilog code provided." });
     }
 
-    // Create a unique temporary directory for this student's execution
     const runId = Date.now().toString() + Math.floor(Math.random() * 1000);
     const runDir = path.join('/tmp', runId);
     fs.mkdirSync(runDir, { recursive: true });
 
-    // IMPORTANT: Save as .sv so the compiler natively treats it as SystemVerilog
     const filePath = path.join(runDir, 'design.sv');
     const outPath = path.join(runDir, 'sim.vvp');
 
-    // 1. Save the student's code to a file
     fs.writeFileSync(filePath, code);
 
-    // 2. Compile the code using Icarus Verilog with SystemVerilog support (-g2012)
     exec(`iverilog -g2012 -o ${outPath} ${filePath}`, { timeout: 10000 }, (compileErr, compileStdout, compileStderr) => {
         if (compileErr) {
-            // If there's a syntax error, send it back!
             fs.rmSync(runDir, { recursive: true, force: true });
             return res.json({ status: "error", output: compileStderr || compileErr.message });
         }
 
-        // 3. Run the simulation using VVP
         exec(`vvp ${outPath}`, { timeout: 10000 }, (runErr, runStdout, runStderr) => {
-            // Clean up the temporary files so we don't run out of space
             fs.rmSync(runDir, { recursive: true, force: true });
 
             if (runErr) {
                 return res.json({ status: "error", output: runStderr || runErr.message });
             }
 
-            // Send the terminal output back to the student's screen!
             return res.json({ status: "success", output: runStdout });
         });
     });
@@ -111,5 +140,5 @@ app.post('/run', authenticateToken, (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Secured SystemVerilog Compilation Server running on port ${PORT}`);
+    console.log(`Unified Secured Backend running on port ${PORT}`);
 });
