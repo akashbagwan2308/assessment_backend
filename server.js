@@ -3,12 +3,71 @@ const cors = require('cors');
 const fs = require('fs');
 const { exec } = require('child_process');
 const path = require('path');
+const jwt = require('jsonwebtoken'); // Added JWT
 
 const app = express();
 app.use(cors()); // Allows your GitHub Pages site to talk to this server
 app.use(express.json());
 
-app.post('/run', (req, res) => {
+// 🔴 SECRET KEY: Store this in Render Environment Variables!
+const JWT_SECRET = process.env.JWT_SECRET || "logicsilicon_secure_jwt_key_2024";
+const GOOGLE_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzhtk4rISUDJvMb3nLzJq2CBY5cVnm9kAnL_fuW77MLOkoR0-_dS0nKtmCwBjpD3mpAnQ/exec";
+
+// ==========================================
+// 1. SECURE AUTHENTICATION ENDPOINT
+// ==========================================
+app.post('/login', async (req, res) => {
+    const { email, authString, role } = req.body;
+
+    try {
+        // Securely verify credentials with Google Apps Script from the backend
+        const googleResponse = await fetch(GOOGLE_WEB_APP_URL, {
+            method: 'POST', 
+            headers: {'Content-Type': 'text/plain'}, 
+            body: JSON.stringify({ action: 'login', role: role, email: email, authString: authString })
+        });
+
+        const data = await googleResponse.json();
+
+        if (data.status === 'success') {
+            // Issue the JWT VIP Pass
+            const token = jwt.sign(
+                { email: email, role: role }, 
+                JWT_SECRET, 
+                { expiresIn: '24h' }
+            );
+
+            res.json({ status: 'success', token: token, user: { email, role } });
+        } else {
+            res.status(401).json({ status: 'error', message: data.message || 'Invalid credentials.' });
+        }
+    } catch (error) {
+        console.error("Auth Error:", error);
+        res.status(500).json({ status: 'error', message: 'Internal server error during authentication.' });
+    }
+});
+
+// ==========================================
+// 2. SECURITY MIDDLEWARE
+// ==========================================
+function authenticateToken(req, res, next) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1]; // Extract token from "Bearer <token>"
+
+    if (!token) return res.status(401).json({ status: "error", output: "Access Denied: No JWT Token Provided. Please log in again." });
+
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) return res.status(403).json({ status: "error", output: "Access Denied: Invalid or Expired Session Token." });
+        req.user = user;
+        next();
+    });
+}
+
+// ==========================================
+// 3. SECURED COMPILATION ENDPOINT
+// ==========================================
+// Added 'authenticateToken' to protect execution
+app.post('/run', authenticateToken, (req, res) => {
     const code = req.body.code;
     
     if (!code) {
@@ -52,5 +111,5 @@ app.post('/run', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`SystemVerilog Compilation Server running on port ${PORT}`);
+    console.log(`Secured SystemVerilog Compilation Server running on port ${PORT}`);
 });
