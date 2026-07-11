@@ -188,7 +188,7 @@ You must respond in valid JSON format matching this exact structure:
         // Call OpenAI API
         // Call API
         const completion = await openai.chat.completions.create({
-            model: "llama3-8b-8192", // Groq's lightning-fast, free model
+            model: "llama-3.1-8b-instant", // <-- The active, supported Groq model
             messages: [
                 { 
                     role: "system", 
