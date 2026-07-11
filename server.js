@@ -20,7 +20,11 @@ const GOOGLE_SCRIPT_URL_LMS = process.env.GOOGLE_SCRIPT_URL_LMS || "https://scri
 const GOOGLE_SCRIPT_URL_ASSESSMENT = process.env.GOOGLE_SCRIPT_URL_ASSESSMENT || "https://script.google.com/macros/s/AKfycbzhtk4rISUDJvMb3nLzJq2CBY5cVnm9kAnL_fuW77MLOkoR0-_dS0nKtmCwBjpD3mpAnQ/exec";
 
 // Initialize OpenAI
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Initialize OpenAI SDK to point to Groq's free servers
+const openai = new OpenAI({ 
+    apiKey: process.env.OPENAI_API_KEY,
+    baseURL: "https://api.groq.com/openai/v1" 
+});
 
 // ==========================================
 // 1. SECURE AUTHENTICATION ENDPOINT
