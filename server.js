@@ -5,18 +5,22 @@ const fs = require('fs');
 const { exec } = require('child_process');
 const path = require('path');
 const jwt = require('jsonwebtoken'); 
+const { GoogleGenAI } = require('@google/genai');
 
 const app = express();
 
 // Security and Middleware
 app.use(cors()); 
-app.use(express.json({ limit: '20mb' })); // Increased limit for Base64 PDF uploads
+app.use(express.json({ limit: '20mb' })); 
 app.use(express.urlencoded({ limit: '20mb', extended: true }));
 
 // 🔴 SECRET KEYS & URLS: Store these in Render Environment Variables!
 const JWT_SECRET = process.env.JWT_SECRET || "logicsilicon_secure_jwt_key_2024";
 const GOOGLE_SCRIPT_URL_LMS = process.env.GOOGLE_SCRIPT_URL_LMS || "https://script.google.com/macros/s/AKfycbzH1O7uFf7KLOTwNoAWyUReCYhiD1dftrUQ-BMok70w2Ry25wD17-oiw0LzyYFTIK4ePQ/exec";
 const GOOGLE_SCRIPT_URL_ASSESSMENT = process.env.GOOGLE_SCRIPT_URL_ASSESSMENT || "https://script.google.com/macros/s/AKfycbzhtk4rISUDJvMb3nLzJq2CBY5cVnm9kAnL_fuW77MLOkoR0-_dS0nKtmCwBjpD3mpAnQ/exec";
+
+// Initialize AI Engine
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 // ==========================================
 // 1. SECURE AUTHENTICATION ENDPOINT
@@ -25,7 +29,6 @@ app.post('/login', async (req, res) => {
     const { email, authString, role } = req.body;
 
     try {
-        // Securely verify credentials with the LMS Google Apps Script
         const googleResponse = await fetch(GOOGLE_SCRIPT_URL_LMS, {
             method: 'POST', 
             headers: {'Content-Type': 'text/plain'}, 
@@ -35,7 +38,6 @@ app.post('/login', async (req, res) => {
         const data = await googleResponse.json();
 
         if (data.status === 'success') {
-            // Issue the JWT VIP Pass
             const token = jwt.sign(
                 { email: email, role: role }, 
                 JWT_SECRET, 
@@ -57,7 +59,7 @@ app.post('/login', async (req, res) => {
 // ==========================================
 function authenticateToken(req, res, next) {
     const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1]; // Extract token from "Bearer <token>"
+    const token = authHeader && authHeader.split(' ')[1];
 
     if (!token) return res.status(401).json({ status: "error", message: "Access Denied: No JWT Token Provided. Please log in again." });
 
@@ -136,6 +138,64 @@ app.post('/run', authenticateToken, (req, res) => {
             return res.json({ status: "success", output: runStdout });
         });
     });
+});
+
+// ==========================================
+// 5. SECURED AI GRADING ENDPOINT
+// ==========================================
+app.post('/ai-grade', authenticateToken, async (req, res) => {
+    try {
+        const { questionTitle, questionDesc, studentCode, maxMarks } = req.body;
+
+        if (!studentCode || studentCode.trim() === "") {
+            return res.json({ status: 'success', suggestedMarks: 0, feedback: "Not attempted. No code provided." });
+        }
+
+        const systemPrompt = `
+You are an expert Hardware Engineering Instructor grading a student's Verilog/SystemVerilog code. 
+
+Context:
+- Question Title: ${questionTitle}
+- Question Description: ${questionDesc}
+- Maximum Marks: ${maxMarks}
+
+Student Code Submission:
+\`\`\`verilog
+${studentCode}
+\`\`\`
+
+Evaluate the code strictly based on the following rules:
+1. NOT ATTEMPTED: If the code is missing, or is just an empty module/boilerplate with no logic implemented, score 0 marks. Reason: "Not attempted / No logic implemented."
+2. SYNTAX: Check for valid Verilog/SystemVerilog syntax. Deduct marks for syntax errors and clearly list them.
+3. LOGIC: Verify if the implemented logic correctly solves the problem described. Deduct marks for flawed logic, incorrect port mappings, or missing edge cases.
+4. Provide a final numerical score (integer) based on the Maximum Marks.
+
+Respond STRICTLY in the following JSON format. Do not output markdown code blocks wrapping the JSON, just raw JSON:
+{
+  "suggestedMarks": <number>,
+  "feedback": "<A clear, concise 2-4 sentence explanation addressing logic, syntax, and reasoning for the deducted marks>"
+}`;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: systemPrompt,
+            config: {
+                responseMimeType: "application/json",
+            }
+        });
+
+        const aiResult = JSON.parse(response.text);
+
+        res.json({
+            status: 'success',
+            suggestedMarks: aiResult.suggestedMarks,
+            feedback: aiResult.feedback
+        });
+
+    } catch (error) {
+        console.error("AI Grading Error:", error);
+        res.status(500).json({ status: 'error', message: 'Failed to evaluate code using AI engine.' });
+    }
 });
 
 const PORT = process.env.PORT || 3000;
