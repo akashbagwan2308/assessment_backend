@@ -186,8 +186,9 @@ You must respond in valid JSON format matching this exact structure:
 }`;
 
         // Call OpenAI API
+        // Call API
         const completion = await openai.chat.completions.create({
-            model: "gpt-4o-mini", // Fast, capable, and stable
+            model: "llama3-8b-8192", // Groq's lightning-fast, free model
             messages: [
                 { 
                     role: "system", 
@@ -198,7 +199,7 @@ You must respond in valid JSON format matching this exact structure:
                     content: systemPrompt 
                 }
             ],
-            response_format: { type: "json_object" } // Forces OpenAI to return clean JSON
+            response_format: { type: "json_object" } 
         });
 
         const responseText = completion.choices[0].message.content;
