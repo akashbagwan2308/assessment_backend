@@ -181,16 +181,10 @@ Evaluate the code strictly based on the following rules:
 You must respond in valid JSON format matching this exact structure:
 {
   "suggestedMarks": <number>,
-  "feedback": "• [Exact Code Snippet] -> [Direct, specific issue]\\n• [Exact Code Snippet] -> [Direct, specific issue]"
+  "feedback": "• [Issue 1]\\n• [Issue 2]\\n• [Issue 3]"
 }
 
-IMPORTANT INSTRUCTIONS FOR "feedback":
-- The "feedback" string MUST be a direct bulleted list using the '•' symbol and '\\n' for line breaks.
-- NEVER write introductory paragraphs, summaries, or pleasantries.
-- Quote the exact flawed code snippet, followed by " -> ", followed by the exact technical error. No vague answers.
-- Example 1: "• module pallindrome_checker;input [7:0] data;output p; -> Inappropriate syntax (missing port list in module declaration)."
-- Example 2: "• p = (A[7]==A[0])... -> 'A' is used in place of declared input 'data'."
-- Example 3: "• $monitor(...) -> $time argument is missing from the monitor variables."`;
+IMPORTANT: The "feedback" string MUST be a direct, hard-hitting bulleted list using the '•' symbol and '\\n' for line breaks. Do not write introductory paragraphs. Do not use pleasantries. Just list the exact errors and point deductions directly.`;
 
         // Call OpenAI API
         // Call API
