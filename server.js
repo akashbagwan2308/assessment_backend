@@ -147,10 +147,9 @@ app.post('/ai-grade', authenticateToken, async (req, res) => {
     try {
         // SAFETY CHECK: Ensure API key exists before trying to call Gemini
         if (!process.env.GEMINI_API_KEY) {
-            console.error("CRITICAL ERROR: GEMINI_API_KEY is missing from Render Environment Variables.");
             return res.status(500).json({ 
                 status: 'error', 
-                message: 'Server configuration error: AI API key is missing. Contact administrator.' 
+                message: 'Server configuration error: AI API key is missing from Render dashboard.' 
             });
         }
 
@@ -169,9 +168,7 @@ Context:
 - Maximum Marks: ${maxMarks}
 
 Student Code Submission:
-\`\`\`verilog
 ${studentCode}
-\`\`\`
 
 Evaluate the code strictly based on the following rules:
 1. NOT ATTEMPTED: If the code is missing, or is just an empty module/boilerplate with no logic implemented, score 0 marks. Reason: "Not attempted / No logic implemented."
@@ -179,10 +176,10 @@ Evaluate the code strictly based on the following rules:
 3. LOGIC: Verify if the implemented logic correctly solves the problem described. Deduct marks for flawed logic, incorrect port mappings, or missing edge cases.
 4. Provide a final numerical score (integer) based on the Maximum Marks.
 
-Respond STRICTLY in the following JSON format. Do not output markdown code blocks wrapping the JSON, just raw JSON:
+Respond STRICTLY with raw JSON only. Do NOT wrap the JSON in markdown code blocks. Use this exact schema:
 {
-  "suggestedMarks": <number>,
-  "feedback": "<A clear, concise 2-4 sentence explanation addressing logic, syntax, and reasoning for the deducted marks>"
+  "suggestedMarks": 0,
+  "feedback": "Your concise 2-4 sentence explanation here."
 }`;
 
         const response = await ai.models.generateContent({
@@ -193,7 +190,21 @@ Respond STRICTLY in the following JSON format. Do not output markdown code block
             }
         });
 
-        const aiResult = JSON.parse(response.text);
+        // Handle safety blocks where AI returns no text
+        if (!response.text) {
+            throw new Error("AI returned empty content. The code may have triggered a safety filter.");
+        }
+
+        // CLEAN THE RESPONSE: Remove markdown formatting if Gemini ignored the prompt instructions
+        let cleanText = response.text.replace(/```json/gi, '').replace(/```/g, '').trim();
+
+        let aiResult;
+        try {
+            aiResult = JSON.parse(cleanText);
+        } catch (parseErr) {
+            console.error("Raw AI Output was:", response.text);
+            throw new Error("AI returned malformed JSON data that could not be parsed.");
+        }
 
         res.json({
             status: 'success',
@@ -203,7 +214,12 @@ Respond STRICTLY in the following JSON format. Do not output markdown code block
 
     } catch (error) {
         console.error("AI Grading Error:", error);
-        res.status(500).json({ status: 'error', message: 'Failed to evaluate code using AI engine. Check backend logs.' });
+        
+        // Expose the EXACT error message to the frontend UI
+        res.status(500).json({ 
+            status: 'error', 
+            message: `AI Engine Error: ${error.message}` 
+        });
     }
 });
 
