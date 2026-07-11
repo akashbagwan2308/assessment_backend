@@ -5,7 +5,7 @@ const fs = require('fs');
 const { exec } = require('child_process');
 const path = require('path');
 const jwt = require('jsonwebtoken'); 
-const { GoogleGenAI } = require('@google/genai');
+const { GoogleGenerativeAI } = require('@google/generative-ai'); // <-- Using the stable SDK
 
 const app = express();
 
@@ -14,13 +14,13 @@ app.use(cors());
 app.use(express.json({ limit: '20mb' })); 
 app.use(express.urlencoded({ limit: '20mb', extended: true }));
 
-// 🔴 SECRET KEYS & URLS: Store these in Render Environment Variables!
+// 🔴 SECRET KEYS & URLS
 const JWT_SECRET = process.env.JWT_SECRET || "logicsilicon_secure_jwt_key_2024";
 const GOOGLE_SCRIPT_URL_LMS = process.env.GOOGLE_SCRIPT_URL_LMS || "https://script.google.com/macros/s/AKfycbzH1O7uFf7KLOTwNoAWyUReCYhiD1dftrUQ-BMok70w2Ry25wD17-oiw0LzyYFTIK4ePQ/exec";
 const GOOGLE_SCRIPT_URL_ASSESSMENT = process.env.GOOGLE_SCRIPT_URL_ASSESSMENT || "https://script.google.com/macros/s/AKfycbzhtk4rISUDJvMb3nLzJq2CBY5cVnm9kAnL_fuW77MLOkoR0-_dS0nKtmCwBjpD3mpAnQ/exec";
 
-// Initialize AI Engine
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// Initialize the Stable AI Engine
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // ==========================================
 // 1. SECURE AUTHENTICATION ENDPOINT
@@ -145,7 +145,6 @@ app.post('/run', authenticateToken, (req, res) => {
 // ==========================================
 app.post('/ai-grade', authenticateToken, async (req, res) => {
     try {
-        // SAFETY CHECK: Ensure API key exists before trying to call Gemini
         if (!process.env.GEMINI_API_KEY) {
             return res.status(500).json({ 
                 status: 'error', 
@@ -182,27 +181,27 @@ Respond STRICTLY with raw JSON only. Do NOT wrap the JSON in markdown code block
   "feedback": "Your concise 2-4 sentence explanation here."
 }`;
 
-        const response = await ai.models.generateContent({
-            model: 'gemini-pro', // <--- Added "-latest"
-            contents: systemPrompt,
-            config: {
-                responseMimeType: "application/json",
-            }
+        // Using the stable SDK initialization
+        const model = genAI.getGenerativeModel({ 
+            model: "gemini-1.5-flash",
+            generationConfig: { responseMimeType: "application/json" }
         });
 
-        // Handle safety blocks where AI returns no text
-        if (!response.text) {
+        const result = await model.generateContent(systemPrompt);
+        const responseText = result.response.text();
+
+        if (!responseText) {
             throw new Error("AI returned empty content. The code may have triggered a safety filter.");
         }
 
-        // CLEAN THE RESPONSE: Remove markdown formatting if Gemini ignored the prompt instructions
-        let cleanText = response.text.replace(/```json/gi, '').replace(/```/g, '').trim();
+        // Strip any residual markdown that the AI might incorrectly include
+        let cleanText = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
 
         let aiResult;
         try {
             aiResult = JSON.parse(cleanText);
         } catch (parseErr) {
-            console.error("Raw AI Output was:", response.text);
+            console.error("Raw AI Output was:", responseText);
             throw new Error("AI returned malformed JSON data that could not be parsed.");
         }
 
@@ -215,7 +214,6 @@ Respond STRICTLY with raw JSON only. Do NOT wrap the JSON in markdown code block
     } catch (error) {
         console.error("AI Grading Error:", error);
         
-        // Expose the EXACT error message to the frontend UI
         res.status(500).json({ 
             status: 'error', 
             message: `AI Engine Error: ${error.message}` 
