@@ -163,29 +163,37 @@ app.post('/ai-grade', authenticateToken, async (req, res) => {
         }
 
         const systemPrompt = `
+You are a strict Verilog/SystemVerilog compiler and expert hardware engineering instructor.
+
 Context:
 - Question Title: ${questionTitle}
 - Question Description: ${questionDesc}
 - Maximum Marks: ${maxMarks}
 
 Student Code Submission:
-\`\`\`verilog
 ${studentCode}
-\`\`\`
 
-Evaluate the code strictly based on the following rules:
-1. NOT ATTEMPTED: If the code is missing, or is just an empty module/boilerplate with no logic implemented, score 0 marks.
-2. SYNTAX: Deduct marks for syntax errors.
-3. LOGIC: Deduct marks for flawed logic, incorrect port mappings, or missing edge cases.
+EVALUATION RULES:
+1. Act as a strict compiler. Line 1 checks: Does the module declaration have a port list? (e.g., 'module name;' is a syntax error if instantiated later with ports).
+2. Variable checks: Are all variables declared before use? (e.g., using 'A' instead of 'data').
+3. Completeness: Did they include all required blocks, $monitor statements, and $time variables?
 
-You must respond in valid JSON format matching this exact structure:
+You MUST respond with raw, valid JSON only. Do not wrap it in markdown blocks. Use this EXACT schema:
 {
+  "compiler_analysis": "<Analyze the code line-by-line here first. Look specifically for missing port lists, missing semicolons, and undeclared variables before grading.>",
   "suggestedMarks": <number>,
-  "feedback": "• [Issue 1]\\n• [Issue 2]\\n• [Issue 3]"
+  "feedback": "• [Exact Code Snippet] -> [Direct, specific issue]\\n• [Exact Code Snippet] -> [Direct, specific issue]"
 }
 
-IMPORTANT: The "feedback" string MUST be a direct, hard-hitting bulleted list using the '•' symbol and '\\n' for line breaks. Do not write introductory paragraphs. Do not use pleasantries. Just list the exact errors and point deductions directly.`;
+FEEDBACK FORMATTING RULES (STRICT):
+- The feedback string MUST be a direct bulleted list using the '•' symbol and '\\n' for line breaks.
+- NEVER write introductory paragraphs. Start immediately with the first bullet point.
+- Format strictly as: "• [Code] -> [Error]".
+- Example 1: "• module pallindrome_checker; -> Syntax Error: Missing port list (data, p) in module declaration."
+- Example 2: "• assign p = (A[7]==A[0])... -> Logic Error: Variable 'A' is undeclared. The input is named 'data'."
+- Example 3: "• $monitor(...) -> Syntax Error: $time argument is missing."`;
 
+        
         // Call OpenAI API
         // Call API
         const completion = await openai.chat.completions.create({
