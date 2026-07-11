@@ -181,41 +181,48 @@ Respond STRICTLY with raw JSON only. Do NOT wrap the JSON in markdown code block
   "feedback": "Your concise 2-4 sentence explanation here."
 }`;
 
-        // 🔴 BULLETPROOF FALLBACK LOGIC 🔴
-        // Automatically tests every Gemini model name until it finds the one your specific API key has access to.
-        const modelsToTry = [
-            "gemini-1.5-flash", 
-            "gemini-1.5-flash-latest", 
-            "gemini-1.5-pro",
-            "gemini-1.0-pro",
-            "gemini-pro"
-        ];
+        // 🔴 AUTO-DISCOVERY: Fetch active models your key has access to in 2026 🔴
+        const modelResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${process.env.GEMINI_API_KEY}`);
+        const modelData = await modelResponse.json();
         
-        let result = null;
-        let lastError = null;
+        if (!modelData.models) {
+            throw new Error("Could not fetch model list from Google. Ensure your API key is active.");
+        }
 
-        for (const modelName of modelsToTry) {
-            try {
-                console.log(`Attempting evaluation with model: ${modelName}...`);
-                const model = genAI.getGenerativeModel({ 
-                    model: modelName,
-                    generationConfig: { responseMimeType: "application/json" }
-                });
-                
-                result = await model.generateContent(systemPrompt);
-                console.log(`Success! Evaluated using: ${modelName}`);
-                break; // Break loop on first success
-            } catch (err) {
-                lastError = err;
-                console.warn(`Model ${modelName} unavailable on this key. Trying next...`);
+        let selectedModel = null;
+        
+        // 1. Prefer the newest active 'flash' model that supports text generation
+        for (const m of modelData.models) {
+            if (m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent")) {
+                if (m.name.includes("flash") && !m.name.includes("vision")) {
+                    selectedModel = m.name.replace('models/', '');
+                    break;
+                }
+            }
+        }
+        
+        // 2. Fallback to any model that supports text generation if 'flash' isn't found
+        if (!selectedModel) {
+            for (const m of modelData.models) {
+                if (m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent")) {
+                    selectedModel = m.name.replace('models/', '');
+                    break;
+                }
             }
         }
 
-        // If the loop finishes and result is STILL null, the API key has zero model access.
-        if (!result) {
-            throw new Error(`Your API key lacks access to all standard Gemini models. Ensure you generated your key at aistudio.google.com and your region is supported. Last error: ${lastError.message}`);
+        if (!selectedModel) {
+            throw new Error("Your API key has no text generation models available.");
         }
 
+        console.log(`Auto-discovered and dynamically selected model: ${selectedModel}`);
+
+        const model = genAI.getGenerativeModel({ 
+            model: selectedModel,
+            generationConfig: { responseMimeType: "application/json" }
+        });
+
+        const result = await model.generateContent(systemPrompt);
         const responseText = result.response.text();
 
         if (!responseText) {
