@@ -145,6 +145,15 @@ app.post('/run', authenticateToken, (req, res) => {
 // ==========================================
 app.post('/ai-grade', authenticateToken, async (req, res) => {
     try {
+        // SAFETY CHECK: Ensure API key exists before trying to call Gemini
+        if (!process.env.GEMINI_API_KEY) {
+            console.error("CRITICAL ERROR: GEMINI_API_KEY is missing from Render Environment Variables.");
+            return res.status(500).json({ 
+                status: 'error', 
+                message: 'Server configuration error: AI API key is missing. Contact administrator.' 
+            });
+        }
+
         const { questionTitle, questionDesc, studentCode, maxMarks } = req.body;
 
         if (!studentCode || studentCode.trim() === "") {
@@ -194,7 +203,7 @@ Respond STRICTLY in the following JSON format. Do not output markdown code block
 
     } catch (error) {
         console.error("AI Grading Error:", error);
-        res.status(500).json({ status: 'error', message: 'Failed to evaluate code using AI engine.' });
+        res.status(500).json({ status: 'error', message: 'Failed to evaluate code using AI engine. Check backend logs.' });
     }
 });
 
