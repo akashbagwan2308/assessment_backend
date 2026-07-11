@@ -189,7 +189,7 @@ IMPORTANT: The "feedback" string MUST be a direct, hard-hitting bulleted list us
         // Call OpenAI API
         // Call API
         const completion = await openai.chat.completions.create({
-            model: "llama-3.1-8b-instant", // <-- The active, supported Groq model
+            model: "llama-3.3-70b-versatile", // <-- The active, supported Groq model
             messages: [
                 { 
                     role: "system", 
