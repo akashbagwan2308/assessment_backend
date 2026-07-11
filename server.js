@@ -181,13 +181,41 @@ Respond STRICTLY with raw JSON only. Do NOT wrap the JSON in markdown code block
   "feedback": "Your concise 2-4 sentence explanation here."
 }`;
 
-        // Using the stable SDK initialization
-        const model = genAI.getGenerativeModel({ 
-            model: "gemini-1.5-flash",
-            generationConfig: { responseMimeType: "application/json" }
-        });
+        // 🔴 BULLETPROOF FALLBACK LOGIC 🔴
+        // Automatically tests every Gemini model name until it finds the one your specific API key has access to.
+        const modelsToTry = [
+            "gemini-1.5-flash", 
+            "gemini-1.5-flash-latest", 
+            "gemini-1.5-pro",
+            "gemini-1.0-pro",
+            "gemini-pro"
+        ];
+        
+        let result = null;
+        let lastError = null;
 
-        const result = await model.generateContent(systemPrompt);
+        for (const modelName of modelsToTry) {
+            try {
+                console.log(`Attempting evaluation with model: ${modelName}...`);
+                const model = genAI.getGenerativeModel({ 
+                    model: modelName,
+                    generationConfig: { responseMimeType: "application/json" }
+                });
+                
+                result = await model.generateContent(systemPrompt);
+                console.log(`Success! Evaluated using: ${modelName}`);
+                break; // Break loop on first success
+            } catch (err) {
+                lastError = err;
+                console.warn(`Model ${modelName} unavailable on this key. Trying next...`);
+            }
+        }
+
+        // If the loop finishes and result is STILL null, the API key has zero model access.
+        if (!result) {
+            throw new Error(`Your API key lacks access to all standard Gemini models. Ensure you generated your key at aistudio.google.com and your region is supported. Last error: ${lastError.message}`);
+        }
+
         const responseText = result.response.text();
 
         if (!responseText) {
