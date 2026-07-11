@@ -5,7 +5,7 @@ const fs = require('fs');
 const { exec } = require('child_process');
 const path = require('path');
 const jwt = require('jsonwebtoken'); 
-const { GoogleGenerativeAI } = require('@google/generative-ai'); // <-- Using the stable SDK
+const { OpenAI } = require('openai'); // <-- Switched to OpenAI
 
 const app = express();
 
@@ -19,8 +19,8 @@ const JWT_SECRET = process.env.JWT_SECRET || "logicsilicon_secure_jwt_key_2024";
 const GOOGLE_SCRIPT_URL_LMS = process.env.GOOGLE_SCRIPT_URL_LMS || "https://script.google.com/macros/s/AKfycbzH1O7uFf7KLOTwNoAWyUReCYhiD1dftrUQ-BMok70w2Ry25wD17-oiw0LzyYFTIK4ePQ/exec";
 const GOOGLE_SCRIPT_URL_ASSESSMENT = process.env.GOOGLE_SCRIPT_URL_ASSESSMENT || "https://script.google.com/macros/s/AKfycbzhtk4rISUDJvMb3nLzJq2CBY5cVnm9kAnL_fuW77MLOkoR0-_dS0nKtmCwBjpD3mpAnQ/exec";
 
-// Initialize the Stable AI Engine
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// Initialize OpenAI
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // ==========================================
 // 1. SECURE AUTHENTICATION ENDPOINT
@@ -141,14 +141,14 @@ app.post('/run', authenticateToken, (req, res) => {
 });
 
 // ==========================================
-// 5. SECURED AI GRADING ENDPOINT
+// 5. SECURED AI GRADING ENDPOINT (OpenAI)
 // ==========================================
 app.post('/ai-grade', authenticateToken, async (req, res) => {
     try {
-        if (!process.env.GEMINI_API_KEY) {
+        if (!process.env.OPENAI_API_KEY) {
             return res.status(500).json({ 
                 status: 'error', 
-                message: 'Server configuration error: AI API key is missing from Render dashboard.' 
+                message: 'Server configuration error: OPENAI_API_KEY is missing from Render dashboard.' 
             });
         }
 
@@ -159,15 +159,15 @@ app.post('/ai-grade', authenticateToken, async (req, res) => {
         }
 
         const systemPrompt = `
-You are an expert Hardware Engineering Instructor grading a student's Verilog/SystemVerilog code. 
-
 Context:
 - Question Title: ${questionTitle}
 - Question Description: ${questionDesc}
 - Maximum Marks: ${maxMarks}
 
 Student Code Submission:
+\`\`\`verilog
 ${studentCode}
+\`\`\`
 
 Evaluate the code strictly based on the following rules:
 1. NOT ATTEMPTED: If the code is missing, or is just an empty module/boilerplate with no logic implemented, score 0 marks. Reason: "Not attempted / No logic implemented."
@@ -175,66 +175,33 @@ Evaluate the code strictly based on the following rules:
 3. LOGIC: Verify if the implemented logic correctly solves the problem described. Deduct marks for flawed logic, incorrect port mappings, or missing edge cases.
 4. Provide a final numerical score (integer) based on the Maximum Marks.
 
-Respond STRICTLY with raw JSON only. Do NOT wrap the JSON in markdown code blocks. Use this exact schema:
+You must respond in valid JSON format matching this exact structure:
 {
-  "suggestedMarks": 0,
-  "feedback": "Your concise 2-4 sentence explanation here."
+  "suggestedMarks": <number>,
+  "feedback": "<A clear, concise 2-4 sentence explanation addressing logic, syntax, and reasoning for the deducted marks>"
 }`;
 
-        // 🔴 AUTO-DISCOVERY: Fetch active models your key has access to in 2026 🔴
-        const modelResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${process.env.GEMINI_API_KEY}`);
-        const modelData = await modelResponse.json();
-        
-        if (!modelData.models) {
-            throw new Error("Could not fetch model list from Google. Ensure your API key is active.");
-        }
-
-        let selectedModel = null;
-        
-        // 1. Prefer the newest active 'flash' model that supports text generation
-        for (const m of modelData.models) {
-            if (m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent")) {
-                if (m.name.includes("flash") && !m.name.includes("vision")) {
-                    selectedModel = m.name.replace('models/', '');
-                    break;
+        // Call OpenAI API
+        const completion = await openai.chat.completions.create({
+            model: "gpt-4o-mini", // Fast, capable, and stable
+            messages: [
+                { 
+                    role: "system", 
+                    content: "You are an expert Hardware Engineering Instructor grading a student's Verilog/SystemVerilog code. You output strictly valid JSON." 
+                },
+                { 
+                    role: "user", 
+                    content: systemPrompt 
                 }
-            }
-        }
-        
-        // 2. Fallback to any model that supports text generation if 'flash' isn't found
-        if (!selectedModel) {
-            for (const m of modelData.models) {
-                if (m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent")) {
-                    selectedModel = m.name.replace('models/', '');
-                    break;
-                }
-            }
-        }
-
-        if (!selectedModel) {
-            throw new Error("Your API key has no text generation models available.");
-        }
-
-        console.log(`Auto-discovered and dynamically selected model: ${selectedModel}`);
-
-        const model = genAI.getGenerativeModel({ 
-            model: selectedModel,
-            generationConfig: { responseMimeType: "application/json" }
+            ],
+            response_format: { type: "json_object" } // Forces OpenAI to return clean JSON
         });
 
-        const result = await model.generateContent(systemPrompt);
-        const responseText = result.response.text();
-
-        if (!responseText) {
-            throw new Error("AI returned empty content. The code may have triggered a safety filter.");
-        }
-
-        // Strip any residual markdown that the AI might incorrectly include
-        let cleanText = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
+        const responseText = completion.choices[0].message.content;
 
         let aiResult;
         try {
-            aiResult = JSON.parse(cleanText);
+            aiResult = JSON.parse(responseText);
         } catch (parseErr) {
             console.error("Raw AI Output was:", responseText);
             throw new Error("AI returned malformed JSON data that could not be parsed.");
@@ -242,8 +209,8 @@ Respond STRICTLY with raw JSON only. Do NOT wrap the JSON in markdown code block
 
         res.json({
             status: 'success',
-            suggestedMarks: aiResult.suggestedMarks,
-            feedback: aiResult.feedback
+            suggestedMarks: aiResult.suggestedMarks || 0,
+            feedback: aiResult.feedback || "Evaluation complete."
         });
 
     } catch (error) {
