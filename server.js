@@ -183,7 +183,7 @@ Respond STRICTLY with raw JSON only. Do NOT wrap the JSON in markdown code block
 }`;
 
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-1.5-flash', // <--- Updated model name
             contents: systemPrompt,
             config: {
                 responseMimeType: "application/json",
