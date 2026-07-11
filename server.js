@@ -174,16 +174,23 @@ ${studentCode}
 \`\`\`
 
 Evaluate the code strictly based on the following rules:
-1. NOT ATTEMPTED: If the code is missing, or is just an empty module/boilerplate with no logic implemented, score 0 marks. Reason: "Not attempted / No logic implemented."
-2. SYNTAX: Check for valid Verilog/SystemVerilog syntax. Deduct marks for syntax errors and clearly list them.
-3. LOGIC: Verify if the implemented logic correctly solves the problem described. Deduct marks for flawed logic, incorrect port mappings, or missing edge cases.
-4. Provide a final numerical score (integer) based on the Maximum Marks.
+1. NOT ATTEMPTED: If the code is missing, or is just an empty module/boilerplate with no logic implemented, score 0 marks.
+2. SYNTAX: Deduct marks for syntax errors.
+3. LOGIC: Deduct marks for flawed logic, incorrect port mappings, or missing edge cases.
 
 You must respond in valid JSON format matching this exact structure:
 {
   "suggestedMarks": <number>,
-  "feedback": "<A clear, concise 2-4 sentence explanation addressing logic, syntax, and reasoning for the deducted marks>"
-}`;
+  "feedback": "• [Exact Code Snippet] -> [Direct, specific issue]\\n• [Exact Code Snippet] -> [Direct, specific issue]"
+}
+
+IMPORTANT INSTRUCTIONS FOR "feedback":
+- The "feedback" string MUST be a direct bulleted list using the '•' symbol and '\\n' for line breaks.
+- NEVER write introductory paragraphs, summaries, or pleasantries.
+- Quote the exact flawed code snippet, followed by " -> ", followed by the exact technical error. No vague answers.
+- Example 1: "• module pallindrome_checker;input [7:0] data;output p; -> Inappropriate syntax (missing port list in module declaration)."
+- Example 2: "• p = (A[7]==A[0])... -> 'A' is used in place of declared input 'data'."
+- Example 3: "• $monitor(...) -> $time argument is missing from the monitor variables."`;
 
         // Call OpenAI API
         // Call API
